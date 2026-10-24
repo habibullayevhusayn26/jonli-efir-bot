@@ -186,13 +186,15 @@ function buildFfmpegArgs(sourceUrl, outputUrl) {
     '-nostats', '-stats_period', '1', '-progress', 'pipe:1',
     '-re', '-reconnect', '1', '-reconnect_at_eof', '1',
     '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
+    '-analyzeduration', '1000000', '-probesize', '1000000',
     '-i', sourceUrl,
     '-map', '0:v:0', '-map', '0:a:0?',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
-    '-pix_fmt', 'yuv420p', '-r', '30', '-g', '60',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+    '-pix_fmt', 'yuv420p', '-r', '30', '-g', '30', '-keyint_min', '30',
+    '-sc_threshold', '0', '-bf', '0',
     '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-    '-f', 'flv', outputUrl,
+    '-flush_packets', '1', '-f', 'flv', outputUrl,
   ];
 }
 

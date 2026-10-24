@@ -66,6 +66,11 @@ test('FFmpeg output uses Telegram-compatible H.264/AAC and redacts credentials',
   assert.ok(args.includes('libx264'));
   assert.ok(args.includes('aac'));
   assert.ok(args.includes('yuv420p'));
+  assert.ok(args.includes('ultrafast'));
+  assert.ok(args.includes('-analyzeduration'));
+  assert.ok(args.includes('-probesize'));
+  assert.ok(args.includes('-keyint_min'));
+  assert.ok(args.includes('-flush_packets'));
   assert.ok(args.includes('-progress'));
   assert.ok(args.includes('pipe:1'));
   assert.ok(!args.includes('copy'));
