@@ -13,8 +13,9 @@ function templateKeyboard(templates, miniAppUrl) {
       const buttons = [
         Markup.button.callback(`📺 ${template.name}`, `stream:select:${template.id}`),
       ];
-      buttons.push(miniAppUrl
-        ? Markup.button.webApp('👁 Preview', miniAppUrl(template.id))
+      const previewUrl = typeof miniAppUrl === 'function' ? miniAppUrl(template.id) : undefined;
+      buttons.push(previewUrl
+        ? Markup.button.webApp('👁 Preview', previewUrl)
         : Markup.button.callback('👁 Preview', 'preview:setup'));
       return [buttons];
     }),

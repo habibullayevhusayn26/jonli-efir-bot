@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { once } = require('node:events');
 const { test } = require('node:test');
 const { Scenes } = require('telegraf');
+const { templateKeyboard } = require('../keyboards');
 const streamManager = require('../streamManager');
 const scenes = require('../scenes');
 const { createWebServer, validateTelegramInitData } = require('../webServer');
@@ -13,8 +14,33 @@ test('admin wizard scenes register with Telegraf', () => {
   assert.ok(stage);
 });
 
+test('template keyboard uses a callback when the Mini App URL is unavailable', () => {
+  const keyboard = templateKeyboard([{ id: 1, name: 'Test stream' }], () => undefined).reply_markup;
+  assert.equal(keyboard.inline_keyboard[0][1].callback_data, 'preview:setup');
+  assert.equal('web_app' in keyboard.inline_keyboard[0][1], false);
+});
+
+test('template keyboard uses a Mini App button when its URL is available', () => {
+  const keyboard = templateKeyboard(
+    [{ id: 1, name: 'Test stream' }],
+    () => 'https://example.com/miniapp?templateId=1',
+  ).reply_markup;
+  assert.equal(
+    keyboard.inline_keyboard[0][1].web_app.url,
+    'https://example.com/miniapp?templateId=1',
+  );
+});
+
 test('RTMP and source URL validation rejects private hosts and unsafe keys', async () => {
   assert.equal(streamManager.defaultRtmpServerUrl, 'rtmps://dc4-1.rtmp.t.me/s');
+  assert.equal(
+    streamManager.buildRtmpOutputUrl('test-stream-key'),
+    'rtmps://dc4-1.rtmp.t.me/s/test-stream-key',
+  );
+  assert.equal(
+    streamManager.buildRtmpOutputUrl('test-stream-key', 'rtmps://dc4-1.rtmp.t.me/s/'),
+    'rtmps://dc4-1.rtmp.t.me/s/test-stream-key',
+  );
   assert.equal(await streamManager.validateRtmpServer('rtmps://8.8.8.8/live'), 'rtmps://8.8.8.8/live');
   await assert.rejects(streamManager.validateRtmpServer('rtmp://127.0.0.1/live'));
   assert.equal(await streamManager.validateSourceUrl('https://8.8.8.8/live.m3u8'), 'https://8.8.8.8/live.m3u8');
@@ -25,6 +51,14 @@ test('RTMP and source URL validation rejects private hosts and unsafe keys', asy
     '3858481844:Dl4FO9vWBioAOePAx4HQ5A',
   );
   assert.throws(() => streamManager.validateStreamKey('invalid/key'));
+  const originalBotToken = process.env.BOT_TOKEN;
+  process.env.BOT_TOKEN = '123456789:exampleBotToken';
+  assert.throws(
+    () => streamManager.validateStreamKey('123456789:exampleBotToken'),
+    /BotFather tokeni, Stream Key emas/,
+  );
+  if (originalBotToken === undefined) delete process.env.BOT_TOKEN;
+  else process.env.BOT_TOKEN = originalBotToken;
 });
 
 test('FFmpeg output uses Telegram-compatible H.264/AAC and redacts credentials', () => {
@@ -32,6 +66,8 @@ test('FFmpeg output uses Telegram-compatible H.264/AAC and redacts credentials',
   assert.ok(args.includes('libx264'));
   assert.ok(args.includes('aac'));
   assert.ok(args.includes('yuv420p'));
+  assert.ok(args.includes('-progress'));
+  assert.ok(args.includes('pipe:1'));
   assert.ok(!args.includes('copy'));
   assert.equal(
     streamManager.redactFfmpegOutput('failed: rtmps://host/live/secret', ['rtmps://host/live/secret', 'secret']),
@@ -39,16 +75,19 @@ test('FFmpeg output uses Telegram-compatible H.264/AAC and redacts credentials',
   );
 });
 
-test('stream concurrency limits enforce three per user and thirty globally', () => {
+test('stream concurrency limits enforce one per user and thirty globally', () => {
   const canReserve = streamManager.canReserveStreamSlot;
   assert.equal(canReserve({
-    active: 9, starting: 0, userActive: 2, userStarting: 0, maxActive: 30, maxPerUser: 3,
+    active: 9, starting: 0, userActive: 0, userStarting: 0, maxActive: 30, maxPerUser: 1,
   }), undefined);
   assert.equal(canReserve({
-    active: 9, starting: 0, userActive: 3, userStarting: 0, maxActive: 30, maxPerUser: 3,
+    active: 9, starting: 0, userActive: 1, userStarting: 0, maxActive: 30, maxPerUser: 1,
   }), 'user');
   assert.equal(canReserve({
-    active: 29, starting: 1, userActive: 0, userStarting: 0, maxActive: 30, maxPerUser: 3,
+    active: 9, starting: 0, userActive: 0, userStarting: 1, maxActive: 30, maxPerUser: 1,
+  }), 'user');
+  assert.equal(canReserve({
+    active: 29, starting: 1, userActive: 0, userStarting: 0, maxActive: 30, maxPerUser: 1,
   }), 'global');
 });
 

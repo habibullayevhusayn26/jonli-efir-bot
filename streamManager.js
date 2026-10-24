@@ -8,7 +8,7 @@ const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
 const defaultRtmpServerUrl = 'rtmps://dc4-1.rtmp.t.me/s';
 const maxActiveStreams = readLimit(process.env.MAX_ACTIVE_STREAMS, 30);
-const maxStreamsPerUser = readLimit(process.env.MAX_STREAMS_PER_USER, 3);
+const maxStreamsPerUser = readLimit(process.env.MAX_STREAMS_PER_USER, 1);
 const processes = new Map();
 const pendingStarts = new Map();
 
@@ -123,10 +123,17 @@ async function validateRtmpServer(value) {
 }
 
 function validateStreamKey(value) {
+  if (process.env.BOT_TOKEN && value === process.env.BOT_TOKEN) {
+    throw new Error('Bu BotFather tokeni, Stream Key emas. Telegram kanalingizdagi jonli efir sozlamasidan Stream Key oling.');
+  }
   if (!/^[A-Za-z0-9:_-]{4,256}$/.test(value)) {
     throw new Error('Stream Key 4–256 ta harf, raqam, ikki nuqta, chiziqcha yoki pastki chiziqdan iborat bo‘lishi kerak.');
   }
   return value;
+}
+
+function buildRtmpOutputUrl(streamKey, serverUrl = defaultRtmpServerUrl) {
+  return `${serverUrl.replace(/\/+$/, '')}/${validateStreamKey(streamKey)}`;
 }
 
 function runYtDlp(url) {
@@ -176,6 +183,7 @@ async function resolveSource(sourceUrl) {
 function buildFfmpegArgs(sourceUrl, outputUrl) {
   return [
     '-hide_banner', '-loglevel', 'warning',
+    '-nostats', '-stats_period', '1', '-progress', 'pipe:1',
     '-re', '-reconnect', '1', '-reconnect_at_eof', '1',
     '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
     '-i', sourceUrl,
@@ -200,27 +208,75 @@ async function start({ userId, template, serverUrl = defaultRtmpServerUrl, strea
   try {
     const sourceUrl = await resolveSource(template.source_url);
     return await new Promise((resolve, reject) => {
-      const outputUrl = `${serverUrl}/${streamKey}`;
+      const outputUrl = buildRtmpOutputUrl(streamKey, serverUrl);
       const args = buildFfmpegArgs(sourceUrl, outputUrl);
-      const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
       let settled = false;
       let exited = false;
+      let startupFailed = false;
+      let hasOutputFrames = false;
       let broadcast;
       let cleanupPromise = Promise.resolve();
       let errorTail = '';
+      let progressBuffer = '';
+      const startupTimer = setTimeout(() => {
+        if (settled) return;
+        startupFailed = true;
+        settled = true;
+        child.kill('SIGTERM');
+        const diagnostic = redactFfmpegOutput(errorTail.trim(), [outputUrl, streamKey, sourceUrl]).slice(-500);
+        console.error(
+          `FFmpeg startup timed out for user ${userId}, template ${template.id}: no output frames after 30 seconds.` +
+            (diagnostic ? ` ${diagnostic}` : ''),
+        );
+        reject(new Error(
+          `FFmpeg 30 soniyada chiqish freymlarini yubormadi.${diagnostic ? ` Xabar: ${diagnostic}` : ' Manba URL, Stream Key va Render resurslarini tekshiring.'}`,
+        ));
+      }, 30_000);
+      const resolveWhenReady = () => {
+        if (settled || !broadcast || !hasOutputFrames) return;
+        clearTimeout(startupTimer);
+        settled = true;
+        resolve(broadcast);
+      };
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        progressBuffer += chunk;
+        const lines = progressBuffer.split(/\r?\n/);
+        progressBuffer = lines.pop() || '';
+        for (const line of lines) {
+          const match = /^frame=\s*(\d+)$/.exec(line);
+          if (match && Number(match[1]) > 0) {
+            hasOutputFrames = true;
+            resolveWhenReady();
+          }
+        }
+      });
       child.stderr.setEncoding('utf8');
       child.stderr.on('data', (chunk) => {
         errorTail = `${errorTail}${chunk}`.slice(-2000);
       });
       child.once('error', (error) => {
+        clearTimeout(startupTimer);
         if (settled) return;
         settled = true;
         if (error.code === 'ENOENT') reject(new Error('FFmpeg topilmadi. Uni o‘rnating yoki FFMPEG_PATH ni sozlang.'));
         else reject(new Error('FFmpeg jarayonini ishga tushirib bo‘lmadi.'));
       });
       child.once('exit', (code, signal) => {
+        clearTimeout(startupTimer);
         exited = true;
-        if (!broadcast) return;
+        if (!broadcast) {
+          if (!settled) {
+            settled = true;
+            const diagnostic = redactFfmpegOutput(errorTail.trim(), [outputUrl, streamKey, sourceUrl]).slice(-500);
+            reject(new Error(
+              `FFmpeg chiqish freymlarini yuborishdan oldin to‘xtadi (code ${code}, signal ${signal}).` +
+                (diagnostic ? ` Xabar: ${diagnostic}` : ''),
+            ));
+          }
+          return;
+        }
         cleanupPromise = db.deleteBroadcast(broadcast.id).then(() => {
           processes.delete(child.pid);
           const intentionalStop = signal === 'SIGTERM' || signal === 'SIGINT';
@@ -228,13 +284,24 @@ async function start({ userId, template, serverUrl = defaultRtmpServerUrl, strea
           if (code !== 0 && !intentionalStop) {
             console.error(`FFmpeg exited for broadcast ${broadcast.id} (code ${code}, signal ${signal}): ${diagnostic}`);
           }
-          if (onExit && !intentionalStop) {
+          if (onExit && !intentionalStop && !startupFailed && hasOutputFrames) {
             return onExit({ clean: code === 0, diagnostic }).catch((error) => {
               console.error(`Stream exit notification failed for broadcast ${broadcast.id}: ${error.message}`);
             });
           }
+          if (!settled) {
+            settled = true;
+            reject(new Error(
+              `FFmpeg chiqish freymlarini yuborishdan oldin to‘xtadi (code ${code}, signal ${signal}).` +
+                (diagnostic ? `\n${diagnostic}` : ''),
+            ));
+          }
         }).catch((error) => {
           console.error(`Broadcast cleanup failed for ${broadcast.id}: ${error.message}`);
+          if (!settled) {
+            settled = true;
+            reject(new Error('FFmpeg broadcast yozuvini tozalashda xato yuz berdi.'));
+          }
         });
         const running = processes.get(child.pid);
         if (running) running.cleanup = cleanupPromise;
@@ -252,9 +319,7 @@ async function start({ userId, template, serverUrl = defaultRtmpServerUrl, strea
             return;
           }
           processes.set(child.pid, { child, broadcast, cleanup: cleanupPromise });
-          if (settled) return;
-          settled = true;
-          resolve(broadcast);
+          resolveWhenReady();
         } catch (error) {
           child.kill();
           if (!settled) {
@@ -319,6 +384,7 @@ module.exports = {
   validateRtmpServer,
   validateStreamKey,
   buildFfmpegArgs,
+  buildRtmpOutputUrl,
   redactFfmpegOutput,
   resolveSource,
   getStreamCapacity,
