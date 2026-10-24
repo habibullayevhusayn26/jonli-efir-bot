@@ -13,8 +13,6 @@ services:
         sync: false
       - key: MONGODB_DB_NAME
         value: telegram_live_stream_bot
-      - key: RTMP_SERVER_URL
-        value: rtmps://dc4-1.rtmp.t.me/live
       - key: MAX_PREVIEWS
         value: "1"
       - key: MAX_ACTIVE_STREAMS

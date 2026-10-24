@@ -14,7 +14,7 @@ test('admin wizard scenes register with Telegraf', () => {
 });
 
 test('RTMP and source URL validation rejects private hosts and unsafe keys', async () => {
-  assert.equal(streamManager.defaultRtmpServerUrl, 'rtmps://dc4-1.rtmp.t.me/live');
+  assert.equal(streamManager.defaultRtmpServerUrl, 'rtmps://dc4-1.rtmp.t.me/s');
   assert.equal(await streamManager.validateRtmpServer('rtmps://8.8.8.8/live'), 'rtmps://8.8.8.8/live');
   await assert.rejects(streamManager.validateRtmpServer('rtmp://127.0.0.1/live'));
   assert.equal(await streamManager.validateSourceUrl('https://8.8.8.8/live.m3u8'), 'https://8.8.8.8/live.m3u8');

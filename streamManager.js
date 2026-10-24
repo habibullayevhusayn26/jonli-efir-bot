@@ -6,7 +6,7 @@ const db = require('./database');
 
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
-const defaultRtmpServerUrl = process.env.RTMP_SERVER_URL || 'rtmps://dc4-1.rtmp.t.me/live';
+const defaultRtmpServerUrl = 'rtmps://dc4-1.rtmp.t.me/s';
 const maxActiveStreams = readLimit(process.env.MAX_ACTIVE_STREAMS, 30);
 const maxStreamsPerUser = readLimit(process.env.MAX_STREAMS_PER_USER, 3);
 const processes = new Map();
