@@ -19,42 +19,11 @@ body {
 }
 
 .app {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(100%, 720px);
+  position: fixed;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  margin: 0 auto;
-  padding: max(12px, env(safe-area-inset-top)) 14px max(12px, env(safe-area-inset-bottom));
   overflow: hidden;
-}
-
-.eyebrow {
-  color: var(--tg-theme-hint-color, #8b9bab);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-h1 {
-  margin: 3px 0;
-  font-size: 20px;
-}
-
-#status,
-.note {
-  color: var(--tg-theme-hint-color, #8b9bab);
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.35;
-}
-
-.player-shell {
-  flex: 1 1 auto;
-  position: relative;
-  overflow: hidden;
-  min-height: 0;
-  border-radius: 16px;
   background: #05080b;
 }
 
@@ -64,6 +33,7 @@ video {
   position: absolute;
   inset: 0;
   object-fit: contain;
+  background: #05080b;
 }
 
 .placeholder {
@@ -75,60 +45,4 @@ video {
   color: #d7dee5;
   text-align: center;
   pointer-events: none;
-}
-
-.actions {
-  display: flex;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-button {
-  min-height: 40px;
-  flex: 1;
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 14px;
-  background: var(--tg-theme-button-color, #2aabee);
-  color: var(--tg-theme-button-text-color, #fff);
-  font: inherit;
-  font-weight: 600;
-}
-
-button.secondary {
-  background: var(--tg-theme-secondary-bg-color, #263441);
-}
-
-button.danger {
-  background: #b83e4b;
-}
-
-button:disabled {
-  opacity: 0.55;
-}
-
-.note {
-  flex: 0 0 auto;
-}
-
-@media (max-height: 480px) {
-  .app {
-    gap: 6px;
-    padding-top: max(6px, env(safe-area-inset-top));
-    padding-bottom: max(6px, env(safe-area-inset-bottom));
-  }
-
-  .eyebrow,
-  .note {
-    display: none;
-  }
-
-  h1 {
-    font-size: 17px;
-  }
-
-  button {
-    min-height: 34px;
-    padding: 6px 10px;
-  }
 }

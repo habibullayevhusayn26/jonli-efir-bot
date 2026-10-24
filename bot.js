@@ -20,6 +20,7 @@ const adminIds = new Set(
 );
 const bot = new Telegraf(token);
 const stage = new Scenes.Stage(scenes);
+let rtmpServerUrl;
 
 function miniAppUrl(templateId) {
   const configuredUrl = process.env.WEB_APP_URL || process.env.RENDER_EXTERNAL_URL;
@@ -71,6 +72,7 @@ bot.use(async (ctx, next) => {
     await db.saveUser(ctx.from);
     ctx.state.admin = isAdmin(ctx);
     ctx.state.streamManager = streamManager;
+    ctx.state.rtmpServerUrl = rtmpServerUrl;
   }
   if (!ctx.chat || ctx.chat.type !== 'private' || !ctx.from) return next();
   if (ctx.callbackQuery && ctx.callbackQuery.data === 'membership:check') return next();
@@ -85,6 +87,11 @@ bot.start(async (ctx) => {
 
 bot.command('menu', async (ctx) => {
   await ctx.reply('Asosiy menyu:', mainMenu(isAdmin(ctx)));
+});
+
+bot.command('cancel', async (ctx) => {
+  await ctx.scene.leave();
+  await ctx.reply('Amal bekor qilindi.', mainMenu(isAdmin(ctx)));
 });
 
 bot.action('menu:home', async (ctx) => {
@@ -270,6 +277,7 @@ process.once('SIGTERM', () => shutdown('SIGTERM').catch((error) => {
 
 async function start() {
   await db.connect();
+  rtmpServerUrl = await streamManager.validateRtmpServer(streamManager.defaultRtmpServerUrl);
   bot.botInfo = await bot.telegram.getMe();
   const staleCount = await streamManager.clearStaleRecords();
   if (staleCount) console.warn(`Removed ${staleCount} stale broadcast record(s) from the previous run.`);

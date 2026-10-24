@@ -1,6 +1,6 @@
 const { Scenes, Markup } = require('telegraf');
 const db = require('../database');
-const { validateRtmpServer, validateStreamKey, validateSourceUrl } = require('../streamManager');
+const { validateStreamKey, validateSourceUrl } = require('../streamManager');
 const { mainMenu } = require('../keyboards');
 
 function isAdmin(ctx) {
@@ -15,27 +15,18 @@ const streamConfigScene = new Scenes.WizardScene(
       return ctx.scene.leave();
     }
     await ctx.reply(
-      'Telegram kanalingiz yoki guruhingiz sozlamalaridan olingan RTMP Server URL manzilini yuboring.\n' +
-      'Masalan: rtmps://dc4-1.rtmp.t.me/live',
+      'Telegram bergan Stream Key’ni yuboring. Kalit maxfiy saqlanadi; bekor qilish uchun /cancel yuboring.',
       Markup.inlineKeyboard([[Markup.button.callback('Bekor qilish', 'flow:cancel')]]),
     );
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (!ctx.message || typeof ctx.message.text !== 'string') {
-      await ctx.reply('RTMP Server URL manzilini matn ko‘rinishida yuboring.');
+    if (ctx.message && typeof ctx.message.text === 'string' &&
+        ctx.message.text.trim().split('@')[0] === '/cancel') {
+      await ctx.scene.leave();
+      await ctx.reply('Stream sozlash bekor qilindi.', mainMenu(ctx.state.admin === true));
       return;
     }
-    try {
-      ctx.wizard.state.serverUrl = await validateRtmpServer(ctx.message.text.trim());
-    } catch (error) {
-      await ctx.reply(`${error.message}\nIltimos, to‘g‘ri RTMP Server URL yuboring.`);
-      return;
-    }
-    await ctx.reply('Endi Telegram bergan Stream Key’ni yuboring. Bu kalit maxfiy saqlanadi va xabarlarda ko‘rsatilmaydi.');
-    return ctx.wizard.next();
-  },
-  async (ctx) => {
     if (!ctx.message || typeof ctx.message.text !== 'string') {
       await ctx.reply('Stream Key’ni matn ko‘rinishida yuboring.');
       return;
@@ -59,7 +50,7 @@ const streamConfigScene = new Scenes.WizardScene(
       const broadcast = await ctx.state.streamManager.start({
         userId: ctx.from.id,
         template,
-        serverUrl: ctx.wizard.state.serverUrl,
+        serverUrl: ctx.state.rtmpServerUrl,
         streamKey,
         onExit: async (result) => {
           await ctx.telegram.sendMessage(

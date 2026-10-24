@@ -24,7 +24,7 @@ Telegraf v4 bot for relaying administrator-configured stream sources to a user's
 
 ## Telegram Mini App stream preview
 
-The stream menu includes a Preview button that opens a Telegram Mini App. The server verifies Telegram `initData`, checks required-channel membership, starts a short-lived FFmpeg HLS preview, and serves only generated segments through a random, expiring session URL; template source URLs are not sent to the browser. A preview lasts up to five minutes, and the default global preview limit is one process to protect small Render instances.
+The stream menu includes a Preview button that opens a minimal, video-only Telegram Mini App. The server verifies Telegram `initData`, checks required-channel membership, starts a short-lived FFmpeg HLS preview, and serves only generated segments through a random, expiring session URL; template source URLs are not sent to the browser. Preview encoding is capped at 480x270, 15 FPS, 250 kbps video and 32 kbps mono audio, with one-second HLS segments. A preview lasts up to five minutes, and the default global preview limit is one process to protect small Render instances.
 
 The included `Dockerfile` installs FFmpeg and yt-dlp. Deploy `render.yaml` as a Render Blueprint, set `BOT_TOKEN`, `ADMIN_IDS`, and `MONGODB_URI`, then configure the Render service's public hostname in BotFather (`/setdomain` for the bot's Mini App domain). Render provides `RENDER_EXTERNAL_URL`, which the bot uses for the Preview button and Telegram webhook. The local `WEB_APP_URL` setting can override it and must be the public HTTPS origin. Add Render's outbound IP addresses to the MongoDB Atlas Network Access list.
 
@@ -34,7 +34,7 @@ Live stream concurrency is independently limited by `MAX_STREAMS_PER_USER` (defa
 
 ## User flow
 
-Users select an administrator-created source template, then provide their Telegram RTMP Server URL and Stream Key. The stream key is held in memory only for launch and is not stored in MongoDB or printed in logs. Video is transcoded to H.264 and audio to AAC for Telegram-compatible RTMP output; YouTube URLs use yt-dlp's combined audio/video format. Users can review and stop their own active broadcasts. After the bot starts sending the stream, confirm/start the broadcast in Telegram's "Stream with other apps" dialog if Telegram displays that button.
+Users select an administrator-created source template, then provide only their Telegram Stream Key. The common RTMP server is configured once through `RTMP_SERVER_URL` (defaults to `rtmps://dc4-1.rtmp.t.me/live`). The stream key is held in memory only for launch and is not stored in MongoDB or printed in logs. Users can send `/cancel` at any point in the stream-key prompt to abandon setup. Video is transcoded to H.264 and audio to AAC for Telegram-compatible RTMP output; YouTube URLs use yt-dlp's combined audio/video format. Users can review and stop their own active broadcasts. After the bot starts sending the stream, confirm/start the broadcast in Telegram's "Stream with other apps" dialog if Telegram displays that button.
 
 RTMP destinations and HTTP(S) sources must resolve to public IP addresses; private, loopback, link-local, and other non-public targets are rejected. YouTube source URLs are resolved by `yt-dlp` before FFmpeg starts. Install and update `yt-dlp` separately.
 

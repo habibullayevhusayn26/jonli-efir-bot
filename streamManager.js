@@ -6,6 +6,7 @@ const db = require('./database');
 
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
+const defaultRtmpServerUrl = process.env.RTMP_SERVER_URL || 'rtmps://dc4-1.rtmp.t.me/live';
 const maxActiveStreams = readLimit(process.env.MAX_ACTIVE_STREAMS, 30);
 const maxStreamsPerUser = readLimit(process.env.MAX_STREAMS_PER_USER, 3);
 const processes = new Map();
@@ -194,7 +195,7 @@ function redactFfmpegOutput(output, secrets) {
   }, output);
 }
 
-async function start({ userId, template, serverUrl, streamKey, onExit }) {
+async function start({ userId, template, serverUrl = defaultRtmpServerUrl, streamKey, onExit }) {
   const reservation = reserveStreamSlot(userId);
   try {
     const sourceUrl = await resolveSource(template.source_url);
@@ -322,4 +323,5 @@ module.exports = {
   resolveSource,
   getStreamCapacity,
   canReserveStreamSlot,
+  defaultRtmpServerUrl,
 };

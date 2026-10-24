@@ -18,14 +18,15 @@ function buildPreviewArgs(sourceUrl, outputPath) {
     '-hide_banner', '-loglevel', 'warning',
     '-re', '-reconnect', '1', '-reconnect_at_eof', '1',
     '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
+    '-analyzeduration', '1000000', '-probesize', '1000000',
     '-i', sourceUrl,
     '-map', '0:v:0', '-map', '0:a:0?',
     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-    '-vf', "scale='min(640,iw)':'min(360,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-    '-pix_fmt', 'yuv420p', '-r', '20', '-g', '40',
-    '-b:v', '350k', '-maxrate', '400k', '-bufsize', '700k',
-    '-c:a', 'aac', '-b:a', '48k', '-ar', '32000', '-ac', '1',
-    '-f', 'hls', '-hls_time', '2', '-hls_list_size', '3',
+    '-vf', "scale='min(480,iw)':'min(270,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+    '-pix_fmt', 'yuv420p', '-r', '15', '-g', '15',
+    '-b:v', '220k', '-maxrate', '250k', '-bufsize', '440k',
+    '-c:a', 'aac', '-b:a', '32k', '-ar', '32000', '-ac', '1',
+    '-f', 'hls', '-hls_time', '1', '-hls_list_size', '2',
     '-hls_flags', 'delete_segments+independent_segments',
     '-hls_segment_filename', path.join(path.dirname(outputPath), 'segment_%05d.ts'),
     outputPath,
@@ -38,7 +39,13 @@ async function waitForPlaylist(session) {
     if (session.exitError) throw session.exitError;
     try {
       const stat = await fs.stat(session.playlistPath);
-      if (stat.size > 0) return;
+      if (stat.size > 0) {
+        const playlist = await fs.readFile(session.playlistPath, 'utf8');
+        const firstSegment = playlist.split(/\r?\n/).find((line) => line.endsWith('.ts'));
+        if (firstSegment && await fs.stat(path.join(session.directory, firstSegment)).then(() => true).catch(() => false)) {
+          return;
+        }
+      }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }

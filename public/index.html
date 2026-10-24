@@ -12,20 +12,8 @@
   </head>
   <body>
     <main class="app">
-      <header>
-        <div class="eyebrow">LIVE STREAM</div>
-        <h1>Stream preview</h1>
-        <p id="status" role="status">Telegram sessiyasi tekshirilmoqda…</p>
-      </header>
-      <div class="player-shell">
-        <video id="player" controls playsinline muted></video>
-        <div id="placeholder" class="placeholder">Preview tayyorlanmoqda…</div>
-      </div>
-      <div class="actions">
-        <button id="sound-button" class="secondary" type="button" hidden>🔊 Ovoz yoqish</button>
-        <button id="stop-button" class="danger" type="button" hidden>Preview’ni to‘xtatish</button>
-      </div>
-      <p class="note">Preview vaqtinchalik. U 5 daqiqadan so‘ng avtomatik to‘xtaydi.</p>
+      <video id="player" autoplay playsinline muted></video>
+      <div id="placeholder" class="placeholder" role="status">Jonli efir yuklanmoqda…</div>
     </main>
   </body>
 </html>

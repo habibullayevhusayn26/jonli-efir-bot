@@ -14,6 +14,7 @@ test('admin wizard scenes register with Telegraf', () => {
 });
 
 test('RTMP and source URL validation rejects private hosts and unsafe keys', async () => {
+  assert.equal(streamManager.defaultRtmpServerUrl, 'rtmps://dc4-1.rtmp.t.me/live');
   assert.equal(await streamManager.validateRtmpServer('rtmps://8.8.8.8/live'), 'rtmps://8.8.8.8/live');
   await assert.rejects(streamManager.validateRtmpServer('rtmp://127.0.0.1/live'));
   assert.equal(await streamManager.validateSourceUrl('https://8.8.8.8/live.m3u8'), 'https://8.8.8.8/live.m3u8');
@@ -55,10 +56,11 @@ test('preview output is HLS and never exposes the source in the client options',
   const args = previewManager.buildPreviewArgs('https://source.example/private.m3u8?token=secret', 'C:\\temp\\preview\\index.m3u8');
   assert.ok(args.includes('hls'));
   assert.ok(args.includes('libx264'));
-  assert.ok(args.includes('350k'));
-  assert.ok(args.includes('400k'));
+  assert.ok(args.includes('220k'));
+  assert.ok(args.includes('250k'));
+  assert.ok(args.includes('1'));
   assert.ok(args.includes('-vf'));
-  assert.ok(args.some((arg) => arg.includes('min(640,iw)')));
+  assert.ok(args.some((arg) => arg.includes('min(480,iw)')));
   assert.ok(args.some((arg) => arg.endsWith('segment_%05d.ts')));
 });
 
@@ -100,7 +102,9 @@ test('Mini App web server serves the app shell and local HLS player', async (t) 
   const { port } = server.address();
   const appResponse = await fetch(`http://127.0.0.1:${port}/miniapp`);
   assert.equal(appResponse.status, 200);
-  assert.match(await appResponse.text(), /Stream preview/);
+  const html = await appResponse.text();
+  assert.match(html, /<video id="player" autoplay playsinline muted><\/video>/);
+  assert.doesNotMatch(html, /stop-button|sound-button|controls/);
   const hlsResponse = await fetch(`http://127.0.0.1:${port}/assets/hls.min.js`);
   assert.equal(hlsResponse.status, 200);
   assert.match(hlsResponse.headers.get('content-type'), /javascript/);
