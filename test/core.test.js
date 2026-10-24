@@ -42,6 +42,10 @@ test('preview output is HLS and never exposes the source in the client options',
   const args = previewManager.buildPreviewArgs('https://source.example/private.m3u8?token=secret', 'C:\\temp\\preview\\index.m3u8');
   assert.ok(args.includes('hls'));
   assert.ok(args.includes('libx264'));
+  assert.ok(args.includes('350k'));
+  assert.ok(args.includes('400k'));
+  assert.ok(args.includes('-vf'));
+  assert.ok(args.some((arg) => arg.includes('min(640,iw)')));
   assert.ok(args.some((arg) => arg.endsWith('segment_%05d.ts')));
 });
 

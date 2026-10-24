@@ -88,7 +88,13 @@
       if (player.canPlayType('application/vnd.apple.mpegurl')) {
         player.src = absolutePlaylistUrl;
       } else if (window.Hls && window.Hls.isSupported()) {
-        hls = new window.Hls({ liveSyncDurationCount: 2 });
+        hls = new window.Hls({
+          liveSyncDurationCount: 2,
+          maxBufferLength: 5,
+          maxMaxBufferLength: 7,
+          backBufferLength: 0,
+          maxBufferHole: 0.5,
+        });
         hls.loadSource(absolutePlaylistUrl);
         hls.attachMedia(player);
         hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
