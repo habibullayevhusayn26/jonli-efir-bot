@@ -156,7 +156,13 @@ bot.action('admin:stats', async (ctx) => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('Ruxsat yo‘q.', { show_alert: true });
   await ctx.answerCbQuery();
   const stats = await db.getStats();
-  await ctx.reply(`📊 Statistika\nFoydalanuvchilar: ${stats.users}\nFaol efirlar: ${stats.broadcasts}\nShablonlar: ${stats.templates}`, adminKeyboard());
+  const capacity = streamManager.getStreamCapacity();
+  await ctx.reply(
+    `📊 Statistika\nFoydalanuvchilar: ${stats.users}\nFaol efirlar: ${stats.broadcasts}\n` +
+    `Shablonlar: ${stats.templates}\nServer limiti: ${capacity.total}/${capacity.maxActive}\n` +
+    `Bir foydalanuvchi limiti: ${capacity.maxPerUser}`,
+    adminKeyboard(),
+  );
 });
 
 bot.action('admin:templates', async (ctx) => {

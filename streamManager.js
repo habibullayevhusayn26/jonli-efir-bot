@@ -6,7 +6,60 @@ const db = require('./database');
 
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
+const maxActiveStreams = readLimit(process.env.MAX_ACTIVE_STREAMS, 30);
+const maxStreamsPerUser = readLimit(process.env.MAX_STREAMS_PER_USER, 3);
 const processes = new Map();
+const pendingStarts = new Map();
+
+function readLimit(value, fallback) {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getStreamCapacity() {
+  return {
+    active: processes.size,
+    starting: pendingStarts.size,
+    total: processes.size + pendingStarts.size,
+    maxActive: maxActiveStreams,
+    maxPerUser: maxStreamsPerUser,
+  };
+}
+
+function canReserveStreamSlot({
+  active,
+  starting,
+  userActive,
+  userStarting,
+  maxActive,
+  maxPerUser,
+}) {
+  if (userActive + userStarting >= maxPerUser) return 'user';
+  if (active + starting >= maxActive) return 'global';
+  return undefined;
+}
+
+function reserveStreamSlot(userId) {
+  const userActive = [...processes.values()].filter(({ broadcast }) => broadcast.userId === userId).length;
+  const userStarting = [...pendingStarts.values()].filter((pendingUserId) => pendingUserId === userId).length;
+  const limit = canReserveStreamSlot({
+    active: processes.size,
+    starting: pendingStarts.size,
+    userActive,
+    userStarting,
+    maxActive: maxActiveStreams,
+    maxPerUser: maxStreamsPerUser,
+  });
+  if (limit === 'user') {
+    throw new Error(`Bir foydalanuvchi bir vaqtda ko‘pi bilan ${maxStreamsPerUser} ta efir ulashi mumkin.`);
+  }
+  if (limit === 'global') {
+    throw new Error('Serverdagi bir vaqtdagi efirlar limiti to‘ldi. Keyinroq urinib ko‘ring.');
+  }
+  const reservation = Symbol('stream-start');
+  pendingStarts.set(reservation, userId);
+  return reservation;
+}
 
 function parseHttpUrl(value, label) {
   let parsed;
@@ -141,74 +194,80 @@ function redactFfmpegOutput(output, secrets) {
   }, output);
 }
 
-function start({ userId, template, serverUrl, streamKey, onExit }) {
-  return resolveSource(template.source_url).then((sourceUrl) => new Promise((resolve, reject) => {
-    const outputUrl = `${serverUrl}/${streamKey}`;
-    const args = buildFfmpegArgs(sourceUrl, outputUrl);
-    const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
-    let settled = false;
-    let exited = false;
-    let broadcast;
-    let cleanupPromise = Promise.resolve();
-    let errorTail = '';
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk) => {
-      errorTail = `${errorTail}${chunk}`.slice(-2000);
-    });
-    child.once('error', (error) => {
-      if (settled) return;
-      settled = true;
-      if (error.code === 'ENOENT') reject(new Error('FFmpeg topilmadi. Uni o‘rnating yoki FFMPEG_PATH ni sozlang.'));
-      else reject(new Error('FFmpeg jarayonini ishga tushirib bo‘lmadi.'));
-    });
-    child.once('exit', (code, signal) => {
-      exited = true;
-      if (!broadcast) return;
-      cleanupPromise = db.deleteBroadcast(broadcast.id).then(() => {
-        processes.delete(child.pid);
-        const intentionalStop = signal === 'SIGTERM' || signal === 'SIGINT';
-        const diagnostic = redactFfmpegOutput(errorTail.trim(), [outputUrl, streamKey, sourceUrl]).slice(-700);
-        if (code !== 0 && !intentionalStop) {
-          console.error(`FFmpeg exited for broadcast ${broadcast.id} (code ${code}, signal ${signal}): ${diagnostic}`);
-        }
-        if (onExit && !intentionalStop) {
-          return onExit({ clean: code === 0, diagnostic }).catch((error) => {
-            console.error(`Stream exit notification failed for broadcast ${broadcast.id}: ${error.message}`);
-          });
-        }
-      }).catch((error) => {
-        console.error(`Broadcast cleanup failed for ${broadcast.id}: ${error.message}`);
+async function start({ userId, template, serverUrl, streamKey, onExit }) {
+  const reservation = reserveStreamSlot(userId);
+  try {
+    const sourceUrl = await resolveSource(template.source_url);
+    return await new Promise((resolve, reject) => {
+      const outputUrl = `${serverUrl}/${streamKey}`;
+      const args = buildFfmpegArgs(sourceUrl, outputUrl);
+      const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      let settled = false;
+      let exited = false;
+      let broadcast;
+      let cleanupPromise = Promise.resolve();
+      let errorTail = '';
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk) => {
+        errorTail = `${errorTail}${chunk}`.slice(-2000);
       });
-      const running = processes.get(child.pid);
-      if (running) running.cleanup = cleanupPromise;
-    });
-    child.once('spawn', async () => {
-      try {
-        const id = await db.addBroadcast(userId, template.id, child.pid);
-        broadcast = { id: Number(id), pid: child.pid, userId };
-        if (exited) {
-          await db.deleteBroadcast(broadcast.id);
-          if (!settled) {
-            settled = true;
-            reject(new Error('FFmpeg ishga tushishi bilan to‘xtab qoldi.'));
-          }
-          return;
-        }
-        processes.set(child.pid, { child, broadcast, cleanup: cleanupPromise });
+      child.once('error', (error) => {
         if (settled) return;
         settled = true;
-        resolve(broadcast);
-      } catch (error) {
-        child.kill();
-        if (!settled) {
+        if (error.code === 'ENOENT') reject(new Error('FFmpeg topilmadi. Uni o‘rnating yoki FFMPEG_PATH ni sozlang.'));
+        else reject(new Error('FFmpeg jarayonini ishga tushirib bo‘lmadi.'));
+      });
+      child.once('exit', (code, signal) => {
+        exited = true;
+        if (!broadcast) return;
+        cleanupPromise = db.deleteBroadcast(broadcast.id).then(() => {
+          processes.delete(child.pid);
+          const intentionalStop = signal === 'SIGTERM' || signal === 'SIGINT';
+          const diagnostic = redactFfmpegOutput(errorTail.trim(), [outputUrl, streamKey, sourceUrl]).slice(-700);
+          if (code !== 0 && !intentionalStop) {
+            console.error(`FFmpeg exited for broadcast ${broadcast.id} (code ${code}, signal ${signal}): ${diagnostic}`);
+          }
+          if (onExit && !intentionalStop) {
+            return onExit({ clean: code === 0, diagnostic }).catch((error) => {
+              console.error(`Stream exit notification failed for broadcast ${broadcast.id}: ${error.message}`);
+            });
+          }
+        }).catch((error) => {
+          console.error(`Broadcast cleanup failed for ${broadcast.id}: ${error.message}`);
+        });
+        const running = processes.get(child.pid);
+        if (running) running.cleanup = cleanupPromise;
+      });
+      child.once('spawn', async () => {
+        try {
+          const id = await db.addBroadcast(userId, template.id, child.pid);
+          broadcast = { id: Number(id), pid: child.pid, userId };
+          if (exited) {
+            await db.deleteBroadcast(broadcast.id);
+            if (!settled) {
+              settled = true;
+              reject(new Error('FFmpeg ishga tushishi bilan to‘xtab qoldi.'));
+            }
+            return;
+          }
+          processes.set(child.pid, { child, broadcast, cleanup: cleanupPromise });
+          if (settled) return;
           settled = true;
-          reject(error);
-        } else {
-          console.error(`Could not save active broadcast for PID ${child.pid}: ${error.message}`);
+          resolve(broadcast);
+        } catch (error) {
+          child.kill();
+          if (!settled) {
+            settled = true;
+            reject(error);
+          } else {
+            console.error(`Could not save active broadcast for PID ${child.pid}: ${error.message}`);
+          }
         }
-      }
+      });
     });
-  }));
+  } finally {
+    pendingStarts.delete(reservation);
+  }
 }
 
 async function stop(broadcastId, userId) {
@@ -261,4 +320,6 @@ module.exports = {
   buildFfmpegArgs,
   redactFfmpegOutput,
   resolveSource,
+  getStreamCapacity,
+  canReserveStreamSlot,
 };

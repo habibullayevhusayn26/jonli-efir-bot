@@ -15,3 +15,7 @@ services:
         value: telegram_live_stream_bot
       - key: MAX_PREVIEWS
         value: "1"
+      - key: MAX_ACTIVE_STREAMS
+        value: "2"
+      - key: MAX_STREAMS_PER_USER
+        value: "3"

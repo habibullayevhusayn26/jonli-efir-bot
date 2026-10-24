@@ -38,6 +38,19 @@ test('FFmpeg output uses Telegram-compatible H.264/AAC and redacts credentials',
   );
 });
 
+test('stream concurrency limits enforce three per user and thirty globally', () => {
+  const canReserve = streamManager.canReserveStreamSlot;
+  assert.equal(canReserve({
+    active: 9, starting: 0, userActive: 2, userStarting: 0, maxActive: 30, maxPerUser: 3,
+  }), undefined);
+  assert.equal(canReserve({
+    active: 9, starting: 0, userActive: 3, userStarting: 0, maxActive: 30, maxPerUser: 3,
+  }), 'user');
+  assert.equal(canReserve({
+    active: 29, starting: 1, userActive: 0, userStarting: 0, maxActive: 30, maxPerUser: 3,
+  }), 'global');
+});
+
 test('preview output is HLS and never exposes the source in the client options', () => {
   const args = previewManager.buildPreviewArgs('https://source.example/private.m3u8?token=secret', 'C:\\temp\\preview\\index.m3u8');
   assert.ok(args.includes('hls'));
