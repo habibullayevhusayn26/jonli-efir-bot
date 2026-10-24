@@ -66,7 +66,8 @@ const streamConfigScene = new Scenes.WizardScene(
             ctx.from.id,
             result.clean
               ? `Efir tugadi: ${template.name}.`
-              : `Efir kutilmaganda to‘xtadi: ${template.name}. Oqim manbasi yoki RTMP sozlamalarini tekshiring.`,
+              : `Efir kutilmaganda to‘xtadi: ${template.name}. Oqim manbasi yoki RTMP sozlamalarini tekshiring.` +
+                (result.diagnostic ? `\nFFmpeg xabari: ${result.diagnostic}` : ''),
           );
         },
       });

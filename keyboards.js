@@ -7,11 +7,17 @@ function mainMenu(isAdmin) {
   return Markup.inlineKeyboard(rows);
 }
 
-function templateKeyboard(templates) {
+function templateKeyboard(templates, miniAppUrl) {
   return Markup.inlineKeyboard([
-    ...templates.map((template) => [
-      Markup.button.callback(template.name, `stream:select:${template.id}`),
-    ]),
+    ...templates.flatMap((template) => {
+      const buttons = [
+        Markup.button.callback(`📺 ${template.name}`, `stream:select:${template.id}`),
+      ];
+      buttons.push(miniAppUrl
+        ? Markup.button.webApp('👁 Preview', miniAppUrl(template.id))
+        : Markup.button.callback('👁 Preview', 'preview:setup'));
+      return [buttons];
+    }),
     [Markup.button.callback('⬅️ Menyu', 'menu:home')],
   ]);
 }

@@ -69,15 +69,17 @@ async function validateRtmpServer(value) {
 }
 
 function validateStreamKey(value) {
-  if (!/^[A-Za-z0-9_-]{4,256}$/.test(value)) {
-    throw new Error('Stream Key 4–256 ta harf, raqam, chiziqcha yoki pastki chiziqdan iborat bo‘lishi kerak.');
+  if (!/^[A-Za-z0-9:_-]{4,256}$/.test(value)) {
+    throw new Error('Stream Key 4–256 ta harf, raqam, ikki nuqta, chiziqcha yoki pastki chiziqdan iborat bo‘lishi kerak.');
   }
   return value;
 }
 
 function runYtDlp(url) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ytdlpPath, ['--no-warnings', '--no-playlist', '--get-url', url], {
+    const child = spawn(ytdlpPath, [
+      '--no-warnings', '--no-playlist', '--format', 'best', '--get-url', url,
+    ], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -117,15 +119,32 @@ async function resolveSource(sourceUrl) {
   return safeUrl.toString();
 }
 
+function buildFfmpegArgs(sourceUrl, outputUrl) {
+  return [
+    '-hide_banner', '-loglevel', 'warning',
+    '-re', '-reconnect', '1', '-reconnect_at_eof', '1',
+    '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
+    '-i', sourceUrl,
+    '-map', '0:v:0', '-map', '0:a:0?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
+    '-pix_fmt', 'yuv420p', '-r', '30', '-g', '60',
+    '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+    '-f', 'flv', outputUrl,
+  ];
+}
+
+function redactFfmpegOutput(output, secrets) {
+  return secrets.reduce((result, secret) => {
+    if (!secret) return result;
+    return result.replaceAll(secret, '[redacted]');
+  }, output);
+}
+
 function start({ userId, template, serverUrl, streamKey, onExit }) {
   return resolveSource(template.source_url).then((sourceUrl) => new Promise((resolve, reject) => {
     const outputUrl = `${serverUrl}/${streamKey}`;
-    const args = [
-      '-hide_banner', '-loglevel', 'warning',
-      '-re', '-reconnect', '1', '-reconnect_at_eof', '1',
-      '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
-      '-i', sourceUrl, '-c:v', 'copy', '-c:a', 'aac', '-f', 'flv', outputUrl,
-    ];
+    const args = buildFfmpegArgs(sourceUrl, outputUrl);
     const child = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
     let settled = false;
     let exited = false;
@@ -148,14 +167,12 @@ function start({ userId, template, serverUrl, streamKey, onExit }) {
       cleanupPromise = db.deleteBroadcast(broadcast.id).then(() => {
         processes.delete(child.pid);
         const intentionalStop = signal === 'SIGTERM' || signal === 'SIGINT';
+        const diagnostic = redactFfmpegOutput(errorTail.trim(), [outputUrl, streamKey, sourceUrl]).slice(-700);
         if (code !== 0 && !intentionalStop) {
-          const redactedError = errorTail
-            .replaceAll(outputUrl, '[redacted RTMP destination]')
-            .replaceAll(streamKey, '[redacted stream key]');
-          console.error(`FFmpeg exited for broadcast ${broadcast.id} (code ${code}, signal ${signal}): ${redactedError.trim().slice(-500)}`);
+          console.error(`FFmpeg exited for broadcast ${broadcast.id} (code ${code}, signal ${signal}): ${diagnostic}`);
         }
         if (onExit && !intentionalStop) {
-          return onExit({ clean: code === 0 }).catch((error) => {
+          return onExit({ clean: code === 0, diagnostic }).catch((error) => {
             console.error(`Stream exit notification failed for broadcast ${broadcast.id}: ${error.message}`);
           });
         }
@@ -241,4 +258,7 @@ module.exports = {
   validateSourceUrl,
   validateRtmpServer,
   validateStreamKey,
+  buildFfmpegArgs,
+  redactFfmpegOutput,
+  resolveSource,
 };

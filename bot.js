@@ -1,8 +1,11 @@
 require('dotenv').config();
 
 const { Telegraf, session, Scenes, Markup } = require('telegraf');
+const crypto = require('node:crypto');
 const db = require('./database');
 const streamManager = require('./streamManager');
+const previewManager = require('./previewManager');
+const { createWebServer } = require('./webServer');
 const scenes = require('./scenes');
 const { mainMenu, templateKeyboard, activeKeyboard, adminKeyboard } = require('./keyboards');
 
@@ -17,6 +20,21 @@ const adminIds = new Set(
 );
 const bot = new Telegraf(token);
 const stage = new Scenes.Stage(scenes);
+
+function miniAppUrl(templateId) {
+  const configuredUrl = process.env.WEB_APP_URL || process.env.RENDER_EXTERNAL_URL;
+  if (!configuredUrl) return undefined;
+  try {
+    const url = new URL(configuredUrl);
+    if (url.protocol !== 'https:') return undefined;
+    url.pathname = '/miniapp';
+    url.search = new URLSearchParams({ templateId: String(templateId) }).toString();
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
 
 function isAdmin(ctx) {
   return Boolean(ctx.from && adminIds.has(ctx.from.id));
@@ -92,7 +110,14 @@ bot.action('streams:list', async (ctx) => {
     await ctx.reply('Hozircha stream shablonlari yo‘q.');
     return;
   }
-  await ctx.reply('Uzatmoqchi bo‘lgan streamni tanlang:', templateKeyboard(templates));
+  await ctx.reply('Stream nomini bosib efir sozlang yoki Preview’ni tanlab tomosha qiling:', templateKeyboard(templates, miniAppUrl));
+});
+
+bot.action('preview:setup', async (ctx) => {
+  await ctx.answerCbQuery(
+    'Mini App URL sozlanmagan. Render deploy URL’ini WEB_APP_URL ga kiriting.',
+    { show_alert: true },
+  );
 });
 
 bot.action(/^stream:select:(\d+)$/, async (ctx) => {
@@ -212,16 +237,22 @@ bot.catch((error, ctx) => {
 });
 
 let shuttingDown = false;
+let webServer;
+let pollingStarted = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`Received ${signal}; stopping active streams.`);
-  await streamManager.stopAll();
-  await bot.stop(signal);
+  console.log(`Received ${signal}; stopping active streams and previews.`);
+  await Promise.all([streamManager.stopAll(), previewManager.stopAll()]);
+  if (pollingStarted || bot.webhookServer) bot.stop(signal);
+  if (webServer && webServer.listening) {
+    await new Promise((resolve, reject) => {
+      webServer.close((error) => error ? reject(error) : resolve());
+    });
+  }
   await db.close();
 }
 
-process.once('exit', streamManager.stopAll);
 process.once('SIGINT', () => shutdown('SIGINT').catch((error) => {
   console.error(`Shutdown failed: ${error.message}`);
   process.exitCode = 1;
@@ -233,14 +264,46 @@ process.once('SIGTERM', () => shutdown('SIGTERM').catch((error) => {
 
 async function start() {
   await db.connect();
+  bot.botInfo = await bot.telegram.getMe();
   const staleCount = await streamManager.clearStaleRecords();
   if (staleCount) console.warn(`Removed ${staleCount} stale broadcast record(s) from the previous run.`);
-  await bot.launch();
-  console.log('Telegram bot is running.');
+  const renderUrl = process.env.RENDER_EXTERNAL_URL;
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || crypto.randomBytes(32).toString('hex');
+  webServer = createWebServer({
+    botToken: token,
+    telegram: bot.telegram,
+    adminIds,
+    webhookSecret,
+    onTelegramUpdate: (update) => bot.handleUpdate(update),
+  });
+  const port = Number(process.env.PORT || 3000);
+  await new Promise((resolve, reject) => {
+    webServer.once('error', reject);
+    webServer.listen(port, '0.0.0.0', () => {
+      webServer.removeListener('error', reject);
+      resolve();
+    });
+  });
+  if (renderUrl) {
+    const webhookUrl = new URL('/telegram/webhook', renderUrl).toString();
+    await bot.telegram.setWebhook(webhookUrl, { secret_token: webhookSecret });
+    console.log('Telegram webhook and Mini App server are running.');
+  } else {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+    pollingStarted = true;
+    await bot.launch();
+    console.log(`Telegram bot and Mini App server are running on port ${port}.`);
+  }
 }
 
 start().catch(async (error) => {
   console.error(`Bot startup failed: ${error.message}`);
+  if (webServer && webServer.listening) {
+    await new Promise((resolve) => webServer.close(() => resolve()));
+  }
+  await previewManager.stopAll().catch((stopError) => {
+    console.error(`Preview shutdown failed: ${stopError.message}`);
+  });
   await db.close().catch((closeError) => {
     console.error(`MongoDB close failed: ${closeError.message}`);
   });
